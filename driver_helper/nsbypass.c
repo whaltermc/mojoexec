@@ -75,8 +75,14 @@ void* linker_ns_dlopen(const char* name, int flag) {
 
 bool patch_elf_soname(int patchfd, int realfd, size_t size, const char* patchname) {
     char* target = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, patchfd, 0);
-    if(!target) return false;
-    if(read(realfd, target, size) != size) goto fail;
+    if(target == MAP_FAILED) {
+        printf("MojoExec: mjlvlk patch mmap failed: %s\n", strerror(errno));
+        return false;
+    }
+    if(read(realfd, target, size) != size) {
+        printf("MojoExec: mjlvlk patch read failed: %s\n", strerror(errno));
+        goto fail;
+    }
 
 
     ELF_EHDR *ehdr = (ELF_EHDR*)target;
@@ -93,7 +99,11 @@ bool patch_elf_soname(int patchfd, int realfd, size_t size, const char* patchnam
                     char* soname = strtab + dynEntry->d_un.d_val;
                     size_t soname_len = strlen(soname);
                     size_t patchname_len = strlen(patchname);
-                    if(patchname_len != soname_len) goto fail;
+                    if(patchname_len != soname_len) {
+                        printf("MojoExec: mjlvlk soname mismatch: '%s' (%zu) != '%s' (%zu)\n",
+                               soname, soname_len, patchname, patchname_len);
+                        goto fail;
+                    }
 
                     strcpy(soname, patchname);
                     munmap(target, size);
@@ -103,6 +113,7 @@ bool patch_elf_soname(int patchfd, int realfd, size_t size, const char* patchnam
         }
     }
 
+    printf("MojoExec: mjlvlk no SONAME entry found\n");
     fail:
     munmap(target, size);
     return false;
@@ -119,7 +130,10 @@ void* linker_ns_dlopen_unique(const char* tmpdir, const char* name, const char* 
 
     snprintf(pathbuf, PATH_MAX, "%s/%s", SEARCH_PATH, name);
     real_fd = open(pathbuf, O_RDONLY);
-    if(real_fd == -1) return NULL;
+    if(real_fd == -1) {
+        printf("MojoExec: mjlvlk open '%s' failed: %s\n", pathbuf, strerror(errno));
+        return NULL;
+    }
 
     {
         struct stat64 real_stat;
@@ -132,25 +146,35 @@ void* linker_ns_dlopen_unique(const char* tmpdir, const char* name, const char* 
     if(patch_fd == -1) {
         // TODO: use ASharedMemory as fallback
         // NOTE: use page-aligned size (totalsize) for ashmem
+        printf("MojoExec: mjlvlk memfd_create failed: %s, falling back to file\n", strerror(errno));
         snprintf(pathbuf, PATH_MAX, "%s/%"PRIu16"", tmpdir, patchid++);
         patch_fd = open(pathbuf, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
+        if(patch_fd == -1) printf("MojoExec: mjlvlk fallback open '%s' failed: %s\n", pathbuf, strerror(errno));
     }
     if(patch_fd == -1) goto fail_real;
 
-    if(ftruncate64(patch_fd, totalsize) == -1) goto fail_both;
+    if(ftruncate64(patch_fd, totalsize) == -1) {
+        printf("MojoExec: mjlvlk ftruncate failed: %s\n", strerror(errno));
+        goto fail_both;
+    }
 
     bool patch_result = patch_elf_soname(patch_fd, real_fd, fsize, patch_name);
     close(real_fd);
     if(!patch_result) {
+        printf("MojoExec: mjlvlk soname patch failed\n");
         close(patch_fd);
         return NULL;
     }
 
     android_dlextinfo extinfo;
+    memset(&extinfo, 0, sizeof(extinfo));
     extinfo.flags = ANDROID_DLEXT_USE_NAMESPACE | ANDROID_DLEXT_USE_LIBRARY_FD;
     extinfo.library_fd = patch_fd;
     extinfo.library_namespace = driver_namespace;
-    return android_dlopen_ext(patch_name, flags, &extinfo);
+    dlerror();
+    void* result = android_dlopen_ext(patch_name, flags, &extinfo);
+    if(result == NULL) printf("MojoExec: mjlvlk dlopen failed: %s\n", dlerror());
+    return result;
 
     fail_both:
     close(patch_fd);
