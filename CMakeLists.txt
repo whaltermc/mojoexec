@@ -17,7 +17,7 @@ target_link_libraries(mojoexec PRIVATE log)
 if(CMAKE_ANDROID_ARCH_ABI STREQUAL "arm64-v8a")
     target_sources(mojoexec PRIVATE driver_helper/arm64_func_locator.c)
     target_compile_definitions(mojoexec PRIVATE USE_ARM64_LOCATOR)
-    target_compile_definitions(mojoexec PRIVATE ENABLE_TURNIP_LOADER)
+    target_compile_definitions(mojoexec PRIVATE ENABLE_CUSTOM_VULKAN_LOADER)
 
     add_library(linkerhook SHARED
             driver_helper/hook.c
