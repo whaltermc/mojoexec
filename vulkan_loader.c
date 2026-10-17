@@ -15,6 +15,9 @@
 // Name of the custom Vulkan driver to load, or NULL to use the system driver
 static const char* custom_vulkan_driver = NULL;
 
+// Path to the PanVK driver .so file (set from Java). If NULL, falls back to libvulkan_panfrost.so
+static char* panvk_driver_path = NULL;
+
 #ifdef ENABLE_CUSTOM_VULKAN_LOADER
 bool load_custom_vulkan() {
     static bool driver_loaded = false;
@@ -74,7 +77,19 @@ Java_git_artdeell_mojoexec_MojoExec_setUseTurnip(JNIEnv *env, jclass clazz, jboo
 
 JNIEXPORT void JNICALL
 Java_git_artdeell_mojoexec_MojoExec_setUsePanvk(JNIEnv *env, jclass clazz, jboolean enable) {
-    custom_vulkan_driver = enable ? "libvulkan_panfrost.so" : NULL;
+    custom_vulkan_driver = enable ? (panvk_driver_path != NULL ? panvk_driver_path : "libvulkan_panfrost.so") : NULL;
+}
+
+JNIEXPORT void JNICALL
+Java_git_artdeell_mojoexec_MojoExec_setPanvkDriverPath(JNIEnv *env, jclass clazz, jstring path) {
+    if(panvk_driver_path != NULL) free(panvk_driver_path);
+    if(path == NULL) {
+        panvk_driver_path = NULL;
+        return;
+    }
+    const char* str = (*env)->GetStringUTFChars(env, path, NULL);
+    panvk_driver_path = strdup(str);
+    (*env)->ReleaseStringUTFChars(env, path, str);
 }
 
 // Does nothing if custom drivers are unsupported - Mesa will load the system driver automatically

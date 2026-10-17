@@ -5,6 +5,7 @@ public class MojoExec {
     public static native void setDisplayParams(int width, int height, float hz);
     public static native void setUseTurnip(boolean enable);
     public static native void setUsePanvk(boolean enable);
+    public static native void setPanvkDriverPath(String path);
     public static native void preloadVulkan();
     public static native void setNativeLibraryDir(String dir);
 }
